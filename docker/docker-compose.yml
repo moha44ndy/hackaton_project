@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   wmdp-test:
     build:
@@ -8,7 +6,7 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ../src:/app/src              # ✨ Monter le dossier src
+      - ../src:/app/src
       - ../data:/app/data
       - ../results:/app/results
       - ../logs:/app/logs
