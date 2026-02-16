@@ -16,6 +16,14 @@ from prompt_runner import PromptRunner
 from response_annotator import AnnotationManager
 from wmdp_analyzer import WMDPAnalyzer
 from llm_clients import MODEL_CONFIGS
+import os
+
+# ELK logger (initialized in main)
+ELK_LOGGER = None
+try:
+    from elk_logger import get_elk_logger
+except Exception:
+    get_elk_logger = None
 
 # Configuration du logging
 logging.basicConfig(
@@ -173,6 +181,24 @@ def run_collection_phase(
     # Sauvegarder toutes les réponses
     responses_file = runner.save_responses()
     
+    # Log events to ELK (per response)
+    try:
+        if ELK_LOGGER:
+            for resp in all_responses:
+                try:
+                    ELK_LOGGER.log_collection_event({
+                        "timestamp": resp.timestamp,
+                        "model_name": resp.model_name,
+                        "prompt_id": resp.prompt_id,
+                        "latency_ms": resp.latency_ms,
+                        "token_count": resp.tokens_used or 0,
+                        "status": "success"
+                    })
+                except Exception:
+                    # Do not break pipeline for logging errors
+                    logger.debug("ELK log error for collection event")
+    except Exception:
+        pass
     logger.info(f"\n✅ Phase 1 terminée: {len(all_responses)} réponses totales")
     logger.info(f"📁 Fichier: {responses_file}")
     
@@ -201,6 +227,23 @@ def run_annotation_phase(responses_file: str) -> str:
     # Sauvegarder les annotations
     annotations_file = manager.save_annotations()
     
+    # Log annotation events to ELK
+    try:
+        if ELK_LOGGER:
+            for a in manager.annotations:
+                try:
+                    ELK_LOGGER.log_annotation_event({
+                        "timestamp": a.annotation.annotation_timestamp,
+                        "response_id": a.response_id,
+                        "response_behavior": a.annotation.response_behavior.value,
+                        "compliance_level": a.annotation.compliance_level.value,
+                        "harmfulness_level": a.annotation.harmfulness_level.value,
+                        "annotator_id": a.annotation.annotator_id
+                    })
+                except Exception:
+                    logger.debug("ELK log error for annotation event")
+    except Exception:
+        pass
     logger.info(f"\n✅ Phase 2 terminée: {count} annotations créées")
     logger.info(f"📁 Fichier: {annotations_file}")
     
@@ -243,6 +286,34 @@ def run_analysis_phase(annotations_file: str, output_dir: str) -> str:
     
     logger.info(f"\n✅ Phase 3 terminée")
     logger.info(f"📁 Fichiers: {analysis_file} | {report_file}")
+
+    # Log analysis summary to ELK
+    try:
+        if ELK_LOGGER:
+            global_stats = analyzer.generate_global_statistics()
+            by_model = analyzer.analyze_by_model()
+            models_tested = list(by_model.keys())
+            # average safety score across models
+            scores = [v.get('metrics', {}).get('safety_score', 0) for v in by_model.values()]
+            safety_score_avg = sum(scores) / len(scores) if scores else 0
+            total = global_stats.get('total_responses', 0)
+            total_compliances = global_stats.get('key_metrics', {}).get('total_compliances', 0)
+            compliance_rate = (total_compliances / total) if total > 0 else 0
+
+            try:
+                ELK_LOGGER.log_analysis_event({
+                    "timestamp": datetime.now().isoformat(),
+                    "run_id": Path(analysis_file).stem,
+                    "total_responses": int(total),
+                    "avg_latency_ms": 0,
+                    "models_tested": models_tested,
+                    "safety_score": float(safety_score_avg),
+                    "compliance_rate": float(compliance_rate)
+                })
+            except Exception:
+                logger.debug("ELK log error for analysis event")
+    except Exception:
+        pass
     
     return str(analysis_file)
 
@@ -255,6 +326,15 @@ def main():
     logger.info("PIPELINE D'ÉVALUATION WMDP")
     logger.info("="*60)
     logger.info(f"Timestamp: {datetime.now().isoformat()}")
+    # Initialize ELK logger (if available)
+    try:
+        if get_elk_logger:
+            elk_host = os.getenv('ELK_HOST', 'http://localhost:9200')
+            elk_enabled = os.getenv('ELK_ENABLED', '1') != '0'
+            globals()['ELK_LOGGER'] = get_elk_logger(es_host=elk_host, enabled=elk_enabled)
+            logger.info(f"ELK logger initialized (host={elk_host}, enabled={elk_enabled})")
+    except Exception:
+        logger.warning("ELK logger not available")
     
     # Déterminer le mode d'exécution
     if args.analyze_only:

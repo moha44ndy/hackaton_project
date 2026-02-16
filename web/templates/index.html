@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WMDP Quick UI</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 8px; }
+      th { background: #f4f4f4; }
+      button { padding: 8px 12px; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <h2>WMDP Quick UI</h2>
+    <p>Exécuter un test rapide et afficher les derniers événements de collection.</p>
+
+    <div>
+      <label>Model name: <input id="model_name" value="web-test-model"></label>
+      <label>Prompt id: <input id="prompt_id" value="web-run"></label>
+      <button id="runBtn">Run quick test</button>
+      <span id="status"></span>
+    </div>
+
+    <h3>Derniers événements (collection)</h3>
+    <table>
+      <thead>
+        <tr><th>timestamp</th><th>model_name</th><th>prompt_id</th><th>latency_ms</th><th>token_count</th></tr>
+      </thead>
+      <tbody>
+        {% if events is mapping and events.error %}
+        <tr><td colspan="5">Erreur: {{ events.error }}</td></tr>
+        {% else %}
+          {% for e in events %}
+            <tr>
+              <td>{{ e.timestamp }}</td>
+              <td>{{ e.model_name }}</td>
+              <td>{{ e.prompt_id }}</td>
+              <td>{{ e.latency_ms }}</td>
+              <td>{{ e.token_count }}</td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+
+    <script>
+      document.getElementById('runBtn').addEventListener('click', async ()=>{
+        const model_name = document.getElementById('model_name').value;
+        const prompt_id = document.getElementById('prompt_id').value;
+        document.getElementById('status').textContent = 'Running...';
+        try {
+          const r = await fetch('/run-test', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({model_name, prompt_id, latency_ms: 10, token_count: 5})
+          });
+          const j = await r.json();
+          if (j.ok) {
+            document.getElementById('status').textContent = 'OK';
+            setTimeout(()=> location.reload(), 800);
+          } else {
+            document.getElementById('status').textContent = 'Error: '+j.error;
+          }
+        } catch (err) {
+          document.getElementById('status').textContent = 'Error: '+err;
+        }
+      });
+    </script>
+  </body>
+</html>
