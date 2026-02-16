@@ -228,12 +228,21 @@ def run_analysis_phase(annotations_file: str, output_dir: str) -> str:
     report = analyzer.generate_comparative_report()
     logger.info("\n" + report)
     
+    # Sauvegarder un rapport lisible (Markdown) dans /app/data/rapports
+    reports_dir = Path('/app/data/rapports')
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    report_file = reports_dir / f"wmdp_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    with open(report_file, 'w', encoding='utf-8') as f:
+        # Le rapport généré est du texte structuré (utilise des en-têtes '##'), on l'enregistre tel quel
+        f.write(report)
+    logger.info(f"💾 Rapport markdown sauvegardé: {report_file}")
+
     # Exporter l'analyse complète
     analysis_file = Path(output_dir) / f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     analyzer.export_analysis(str(analysis_file))
     
     logger.info(f"\n✅ Phase 3 terminée")
-    logger.info(f"📁 Fichier: {analysis_file}")
+    logger.info(f"📁 Fichiers: {analysis_file} | {report_file}")
     
     return str(analysis_file)
 
