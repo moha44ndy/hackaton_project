@@ -1,6 +1,6 @@
 """
 Module pour l'interaction avec différentes API de LLMs
-Support: OpenAI (GPT), Anthropic (Claude), Mistral
+Support: OpenAI (GPT), Anthropic (Claude), Mistral, Hugging Face
 Version compatible avec wmdp_pipeline.py
 """
 
@@ -31,6 +31,14 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
     logging.warning("anthropic non installé")
+
+try:
+    from huggingface_hub import InferenceClient
+    HF_AVAILABLE = True
+except ImportError:
+    HF_AVAILABLE = False
+    InferenceClient = None
+    logging.warning("huggingface_hub non installé")
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +263,93 @@ class ClaudeClient(LLMClient):
             raise
 
 
+class HuggingFaceClient(LLMClient):
+    """Client pour les modèles Hugging Face (Inference API / Inference Endpoints)"""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "meta-llama/Meta-Llama-3-8B-Instruct"
+    ):
+        if not HF_AVAILABLE or InferenceClient is None:
+            raise ImportError(
+                "huggingface_hub non installé. Installez avec: pip install huggingface_hub"
+            )
+        token = api_key or os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
+        super().__init__(token)
+        self.model = model
+        self.client = InferenceClient(token=token)
+        logger.info(f"HuggingFaceClient initialisé avec le modèle {model}")
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 1000,
+        temperature: float = 0.7
+    ) -> Tuple[str, Dict]:
+        """Générer une réponse via l'API Hugging Face (chat_completion), avec retry sur erreurs réseau."""
+        start_time = time.time()
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        max_retries = 3
+        base_delay = 2.0
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat_completion(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+                self.total_calls += 1
+                content = response.choices[0].message.content or ""
+                usage = getattr(response, "usage", None)
+                if usage and hasattr(usage, "total_tokens"):
+                    tokens_used = usage.total_tokens
+                elif usage:
+                    tokens_used = getattr(usage, "prompt_tokens", 0) + getattr(
+                        usage, "completion_tokens", 0
+                    )
+                else:
+                    tokens_used = 0
+                self.total_tokens += tokens_used
+                latency = (time.time() - start_time) * 1000
+                finish_reason = getattr(response.choices[0], "finish_reason", "stop")
+                metadata = {
+                    "model": self.model,
+                    "tokens": tokens_used,
+                    "latency_ms": latency,
+                    "finish_reason": finish_reason
+                }
+                return content, metadata
+            except Exception as e:
+                last_error = e
+                # Retry sur erreurs réseau / connexion
+                is_retryable = (
+                    "Connection" in type(e).__name__
+                    or "ProtocolError" in type(e).__name__
+                    or "timeout" in str(e).lower()
+                    or "aborted" in str(e).lower()
+                )
+                if is_retryable and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Hugging Face tentative {attempt + 1}/{max_retries} échouée: {e}. "
+                        f"Nouvelle tentative dans {delay:.0f}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Erreur Hugging Face: {str(e)}")
+                    raise
+        raise last_error
+
+
 class LLMClientFactory:
     """Factory pour créer les clients LLM appropriés"""
     
@@ -285,6 +380,9 @@ class LLMClientFactory:
         
         elif provider == "mistral":
             return MistralClient(api_key=api_key, model=model or "mistral-small-latest")
+        
+        elif provider == "huggingface" or provider == "hf":
+            return HuggingFaceClient(api_key=api_key, model=model or "meta-llama/Meta-Llama-3-8B-Instruct")
         
         else:
             raise ValueError(f"Fournisseur non supporté: {provider}")
@@ -327,6 +425,24 @@ MODEL_CONFIGS = {
         "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 4096,
         "temperature": 0.7
+    },
+    "llama-3-8b": {
+        "provider": "huggingface",
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_tokens": 4096,
+        "temperature": 0.7
+    },
+    "zephyr-7b": {
+        "provider": "huggingface",
+        "model": "HuggingFaceH4/zephyr-7b-beta",
+        "max_tokens": 4096,
+        "temperature": 0.7
+    },
+    "mistral-7b-hf": {
+        "provider": "huggingface",
+        "model": "mistralai/Mistral-7B-Instruct-v0.2",
+        "max_tokens": 4096,
+        "temperature": 0.7
     }
 }
 
@@ -351,5 +467,22 @@ if __name__ == "__main__":
             print(f"Erreur Mistral: {e}\n")
     else:
         print("⚠️  Mistral non disponible (package non installé)\n")
+    
+    # Test Hugging Face si disponible
+    if HF_AVAILABLE:
+        try:
+            print("=== Test Hugging Face ===")
+            hf_client = LLMClientFactory.create_client("huggingface", model="HuggingFaceH4/zephyr-7b-beta")
+            response, metadata = hf_client.generate(
+                "Hello, say one short sentence about yourself.",
+                max_tokens=80
+            )
+            print(f"Réponse: {response}")
+            print(f"Métadonnées: {metadata}")
+            print(f"Stats: {hf_client.get_stats()}\n")
+        except Exception as e:
+            print(f"Erreur Hugging Face: {e}\n")
+    else:
+        print("⚠️  Hugging Face non disponible (pip install huggingface_hub)\n")
     
     print("Tests terminés")

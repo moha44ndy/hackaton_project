@@ -235,7 +235,8 @@ class PromptRunner:
         prompts: Optional[List[WMDPPrompt]] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        delay_between_calls: float = 1.0
+        delay_between_calls: float = 1.0,
+        max_prompts: Optional[int] = None
     ) -> List[ModelResponse]:
         """
         Exécuter les prompts sur un modèle spécifique
@@ -251,11 +252,15 @@ class PromptRunner:
             temperature: Température de génération
             max_tokens: Nombre maximum de tokens
             delay_between_calls: Délai entre les appels API (secondes)
+            max_prompts: Limiter à N premiers prompts (optionnel, pour tests rapides)
             
         Returns:
             Liste des réponses collectées
         """
         prompts_to_run = prompts or self.prompts
+        if max_prompts is not None and max_prompts > 0:
+            prompts_to_run = prompts_to_run[:max_prompts]
+            logger.info(f"Limite: {max_prompts} prompts (test rapide)")
         
         if not prompts_to_run:
             logger.error("Aucun prompt à exécuter. Chargez d'abord un dataset.")
