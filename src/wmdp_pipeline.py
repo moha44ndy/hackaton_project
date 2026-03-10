@@ -9,8 +9,19 @@ Conforme aux Phases 1, 2 et 3A du projet
 import argparse
 import logging
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
+
+# Charger .env à la racine du projet (pour HUGGINGFACE_TOKEN, etc.) en exécution locale
+try:
+    from dotenv import load_dotenv
+    _env_file = Path(__file__).resolve().parent.parent / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+except ImportError:
+    pass
 
 from prompt_runner import PromptRunner
 from response_annotator import AnnotationManager
@@ -25,12 +36,26 @@ try:
 except Exception:
     get_elk_logger = None
 
-# Configuration du logging
+# Racine projet (parent de src/) pour exécution locale
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Docker : sous Windows on est toujours "local"; sous Linux /app/results indique Docker
+_IN_DOCKER = sys.platform != "win32" and Path("/app/results").exists()
+# Chemins : Docker (/app/...) ou local (répertoires sous la racine projet)
+_log_dir = Path("/app/logs") if _IN_DOCKER else _PROJECT_ROOT / "logs"
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_file = _log_dir / "wmdp_pipeline.log"
+_default_output_dir = "/app/results" if _IN_DOCKER else str(_PROJECT_ROOT / "results")
+# Dataset par défaut : data/wmdp_prompts.json
+_default_dataset = None
+_candidate = _PROJECT_ROOT / "data" / "wmdp_prompts.json" if not _IN_DOCKER else Path("/app/data/wmdp_prompts.json")
+if _candidate.exists():
+    _default_dataset = str(_candidate)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/app/logs/wmdp_pipeline.log'),
+        logging.FileHandler(_log_file, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
@@ -71,7 +96,8 @@ Exemples d'utilisation:
     parser.add_argument(
         '--dataset',
         type=str,
-        help='Chemin vers le dataset WMDP JSON (optionnel, utilise des prompts par défaut sinon)'
+        default=_default_dataset,
+        help='Chemin vers le dataset WMDP JSON (défaut: data/wmdp_prompts.json si présent, sinon prompts intégrés)'
     )
     
     # Modes d'exécution
@@ -134,12 +160,20 @@ Exemples d'utilisation:
         help='Délai entre les appels API en secondes (défaut: 1.0)'
     )
     
+    parser.add_argument(
+        '--max-prompts',
+        type=int,
+        default=None,
+        metavar='N',
+        help='Limiter à N premiers prompts (pour tests rapides, ex: --max-prompts 5)'
+    )
+    
     # Répertoires
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='/app/results',
-        help='Répertoire de sortie (défaut: /app/results)'
+        default=_default_output_dir,
+        help='Répertoire de sortie (défaut: /app/results en Docker, sinon results/)'
     )
     
     return parser.parse_args()
@@ -150,7 +184,8 @@ def run_collection_phase(
     models: list,
     temperature: float,
     max_tokens: int,
-    delay: float
+    delay: float,
+    max_prompts: Optional[int] = None
 ) -> str:
     """
     Phase 1: Collection des réponses
@@ -171,7 +206,8 @@ def run_collection_phase(
             model_name=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            delay_between_calls=delay
+            delay_between_calls=delay,
+            max_prompts=max_prompts
         )
         
         all_responses.extend(responses)
@@ -250,7 +286,7 @@ def run_annotation_phase(responses_file: str) -> str:
     return annotations_file
 
 
-def run_analysis_phase(annotations_file: str, output_dir: str) -> str:
+def run_analysis_phase(annotations_file: str, output_dir: str):
     """
     Phase 3: Analyse des résultats
     
@@ -271,8 +307,8 @@ def run_analysis_phase(annotations_file: str, output_dir: str) -> str:
     report = analyzer.generate_comparative_report()
     logger.info("\n" + report)
     
-    # Sauvegarder un rapport lisible (Markdown) dans /app/data/rapports
-    reports_dir = Path('/app/data/rapports')
+    # Sauvegarder un rapport lisible (Markdown)
+    reports_dir = Path('/app/data/rapports') if _IN_DOCKER else _PROJECT_ROOT / "data" / "rapports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     report_file = reports_dir / f"wmdp_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
     with open(report_file, 'w', encoding='utf-8') as f:
@@ -315,7 +351,68 @@ def run_analysis_phase(annotations_file: str, output_dir: str) -> str:
     except Exception:
         pass
     
-    return str(analysis_file)
+    return str(analysis_file), report_file
+
+
+def save_evaluation_finale(
+    analysis_file: str,
+    report_file: Path,
+    responses_file: str,
+    annotations_file: str,
+    models_used: list,
+    dataset_path: Optional[str],
+) -> Path:
+    """
+    Enregistrer le rapport d'évaluation finale (JSON consolidé) selon la logique du projet WMDP.
+    Un seul fichier par run : métadonnées + analyse globale + par modèle + par niveau de risque.
+    """
+    reports_dir = report_file.parent
+    with open(analysis_file, 'r', encoding='utf-8') as f:
+        analysis = json.load(f)
+    
+    # Enrichir avec le contexte du run (dataset, modèles, chemins)
+    risk_levels_in_dataset = []
+    total_prompts_dataset = 0
+    if dataset_path and Path(dataset_path).exists():
+        try:
+            with open(dataset_path, 'r', encoding='utf-8') as f:
+                dataset = json.load(f)
+            from collections import Counter
+            rl = Counter(p.get('risk_level', 'unknown') for p in dataset)
+            risk_levels_in_dataset = [{"risk_level": k, "count": v} for k, v in sorted(rl.items())]
+            total_prompts_dataset = len(dataset)
+        except Exception:
+            pass
+    
+    evaluation_finale = {
+        "projet": "WMDP - Évaluation éthique et sécuritaire des LLMs",
+        "type": "rapport_evaluation_finale",
+        "timestamp": datetime.now().isoformat(),
+        "run": {
+            "models_evalués": models_used,
+            "dataset": dataset_path or "default",
+            "total_prompts_dataset": total_prompts_dataset,
+            "niveaux_risque_couverts": risk_levels_in_dataset,
+            "fichiers": {
+                "reponses": responses_file,
+                "annotations": annotations_file,
+                "analyse": analysis_file,
+                "rapport_md": str(report_file),
+            },
+        },
+        "analyse": analysis,
+        "synthese": {
+            "total_reponses_analysees": analysis.get("total_annotations", 0),
+            "metriques_globales": analysis.get("global_statistics", {}).get("key_metrics", {}),
+            "modeles": list(analysis.get("by_model", {}).keys()),
+        },
+    }
+    
+    out_path = reports_dir / f"wmdp_evaluation_finale_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(evaluation_finale, f, indent=2, ensure_ascii=False)
+    logger.info(f"📋 Rapport d'évaluation finale enregistré: {out_path}")
+    return out_path
 
 
 def main():
@@ -343,7 +440,7 @@ def main():
             logger.error("❌ --annotations requis pour --analyze-only")
             return 1
         
-        run_analysis_phase(args.annotations, args.output_dir)
+        run_analysis_phase(args.annotations, args.output_dir)  # returns (analysis_file, report_file)
     
     elif args.annotate_only:
         # Mode: Annotation uniquement
@@ -378,15 +475,30 @@ def main():
             models=args.models,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
-            delay=args.delay
+            delay=args.delay,
+            max_prompts=args.max_prompts
         )
+        
+        if not responses_file or not Path(responses_file).exists():
+            logger.error("❌ Aucune réponse collectée (vérifiez les clés API, ex. HUGGINGFACE_TOKEN). Pipeline arrêté.")
+            return 1
         
         if args.full_pipeline:
             # Phase 2: Annotation
             annotations_file = run_annotation_phase(responses_file)
             
             # Phase 3: Analyse
-            run_analysis_phase(annotations_file, args.output_dir)
+            analysis_file, report_file = run_analysis_phase(annotations_file, args.output_dir)
+            
+            # Rapport d'évaluation finale (JSON consolidé, logique projet WMDP)
+            save_evaluation_finale(
+                analysis_file=analysis_file,
+                report_file=report_file,
+                responses_file=responses_file,
+                annotations_file=annotations_file,
+                models_used=args.models,
+                dataset_path=args.dataset,
+            )
             
             logger.info("\n" + "="*60)
             logger.info("✅ PIPELINE COMPLET TERMINÉ AVEC SUCCÈS")

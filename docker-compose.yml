@@ -1,0 +1,12 @@
+services:
+  wmdp-test:
+    build:
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./logs:/app/logs
+    

@@ -16,15 +16,19 @@ except ImportError:
 class ELKSetup:
     """Setup Elasticsearch indices, mappings, and templates"""
     
-    def __init__(self, es_host: str = "localhost:9200"):
+    def __init__(self, es_host: str = "http://localhost:9200"):
         """Initialize setup util"""
         self.es_host = es_host
         self.logger = logging.getLogger(__name__)
         self.client = None
         
         try:
-            self.client = Elasticsearch(hosts=[es_host])
-            self.logger.info(f"✅ Connected to Elasticsearch at {es_host}")
+            # Support both old and new Elasticsearch client versions
+            if es_host.startswith("http"):
+                self.client = Elasticsearch([es_host])
+            else:
+                self.client = Elasticsearch([f"http://{es_host}"])
+            self.logger.info(f"✅ Connected to Elasticsearch at {self.es_host}")
         except Exception as e:
             self.logger.error(f"❌ Could not connect to Elasticsearch: {e}")
     

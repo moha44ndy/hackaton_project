@@ -208,7 +208,9 @@ Le projet suit une approche en 3 phases:
 | Claude 3 Sonnet | Anthropic | ✅ |
 | Mistral Small | Mistral AI | ✅ |
 | Mistral Medium | Mistral AI | ✅ |
-| Llama 3 | Meta (via Together) | 🚧 |
+| Llama 3 8B | Hugging Face | ✅ |
+| Zephyr 7B | Hugging Face | ✅ |
+| Mistral 7B Instruct | Hugging Face | ✅ |
 
 ## 📚 Ressources
 

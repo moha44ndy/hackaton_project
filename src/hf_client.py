@@ -274,10 +274,10 @@ HUGGINGFACE_MODELS = {
         "context_window": 4096,
     },
     "zephyr": {
-        "id": "HuggingFaceH4/zephyr-7b-beta",
+        "id": "mistralai/Mistral-7B-Instruct-v0.2",
         "type": "local",
-        "description": "Zephyr 7B",
-        "context_window": 4096,
+        "description": "Mistral 7B Instruct (available on HF API)",
+        "context_window": 8192,
     },
 }
 

@@ -8,5 +8,7 @@ elasticsearch>=8.5.0
 transformers>=4.30.0
 torch>=2.0.0
 huggingface-hub>=0.16.0
+huggingface_hub>=0.20.0
 requests>=2.31.0
 flask>=2.2.0
+openai>=2.17.0

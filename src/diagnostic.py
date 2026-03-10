@@ -27,6 +27,7 @@ def check_packages():
         "mistralai": "Mistral AI",
         "openai": "OpenAI",
         "anthropic": "Anthropic",
+        "huggingface_hub": "Hugging Face Hub",
         "pandas": "Pandas",
         "numpy": "NumPy"
     }
@@ -70,7 +71,8 @@ def check_env_variables():
     env_vars = {
         "MISTRAL_API_KEY": "Mistral AI",
         "OPENAI_API_KEY": "OpenAI",
-        "ANTHROPIC_API_KEY": "Anthropic"
+        "ANTHROPIC_API_KEY": "Anthropic",
+        "HUGGINGFACE_TOKEN": "Hugging Face (ou HF_TOKEN)",
     }
     
     found = 0

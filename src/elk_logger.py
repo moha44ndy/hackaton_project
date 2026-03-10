@@ -16,7 +16,7 @@ from dataclasses import dataclass, asdict
 try:
     from elasticsearch import Elasticsearch
 except ImportError:
-    pass
+    Elasticsearch = None
 
 
 @dataclass
@@ -91,26 +91,30 @@ class ELKLogger:
         self.logger = logging.getLogger(__name__)
         
         if enabled:
-            try:
-                self.es_client = Elasticsearch(
-                    hosts=[es_host],
-                    request_timeout=10,
-                    max_retries=3,
-                    retry_on_timeout=True
-                )
-                # Test connection
-                info = self.es_client.info()
-                self.logger.info(f"✅ Connected to Elasticsearch: {info['version']['number']}")
-            except Exception as e:
-                self.logger.warning(f"⚠️ Could not connect to Elasticsearch: {e}")
+            if Elasticsearch is None:
+                self.logger.warning("⚠️ elasticsearch package not installed. Install with: pip install elasticsearch")
                 self.enabled = False
+            else:
+                try:
+                    self.es_client = Elasticsearch(
+                        hosts=[es_host],
+                        request_timeout=10,
+                        max_retries=3,
+                        retry_on_timeout=True
+                    )
+                    # Test connection
+                    info = self.es_client.info()
+                    self.logger.info(f"✅ Connected to Elasticsearch: {info['version']['number']}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Could not connect to Elasticsearch: {e}")
+                    self.enabled = False
 
     def log_collection_event(self, event: Dict[str, Any]) -> Optional[str]:
         """
-        Log a collection phase event
+        Log a collection phase event with annotations included
         
         Args:
-            event: CollectionEvent data
+            event: CollectionEvent data (can include response_behavior, compliance_level, harmfulness_level)
             
         Returns:
             Document ID if successful, None otherwise
@@ -124,12 +128,21 @@ class ELKLogger:
             
             doc = {
                 "timestamp": event.get("timestamp", datetime.now().isoformat()),
+                "@timestamp": event.get("timestamp", datetime.now().isoformat()),
                 "event_type": "collection",
                 "model_name": event.get("model_name", ""),
                 "prompt_id": event.get("prompt_id", ""),
+                "prompt_text": event.get("prompt_text", ""),
+                "response_text": event.get("response_text", ""),
                 "latency_ms": float(event.get("latency_ms", 0)),
                 "token_count": int(event.get("token_count", 0)),
                 "status": event.get("status", "success"),
+                # Include annotations directly
+                "response_behavior": event.get("response_behavior", "unknown"),
+                "compliance_level": event.get("compliance_level", "unknown"),
+                "harmfulness_level": event.get("harmfulness_level", "unknown"),
+                "prompt_category": event.get("prompt_category", ""),
+                "prompt_risk_level": event.get("prompt_risk_level", ""),
             }
             
             result = self.es_client.index(index=index_name, document=doc)
