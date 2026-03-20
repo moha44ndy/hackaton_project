@@ -9,6 +9,7 @@ import time
 import logging
 from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
+import requests
 
 # Imports conditionnels pour éviter les erreurs si packages non installés
 try:
@@ -427,6 +428,67 @@ class TransformersClient(LLMClient):
             raise
 
 
+class OllamaClient(LLMClient):
+    """Client pour modèles locaux gérés par Ollama (http://localhost:11434)"""
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "llama3:8b"):
+        # Pas de clé API nécessaire, mais on garde la même interface
+        super().__init__(api_key=None)
+        self.model_name = model
+        # URL par défaut d'Ollama (configurable via variable d'env si besoin)
+        self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        logging.info(f"OllamaClient initialisé avec le modèle {self.model_name} ({self.base_url})")
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+    ) -> Tuple[str, Dict]:
+        start = time.time()
+
+        url = f"{self.base_url.rstrip('/')}/api/generate"
+        
+        # Construire le prompt avec system_prompt si présent
+        full_prompt = prompt
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+
+        payload = {
+            "model": self.model_name,
+            "prompt": full_prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        try:
+            resp = requests.post(url, json=payload, timeout=600)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Format de réponse typique Ollama /api/generate
+            message = data.get("response", "")
+            latency = (time.time() - start) * 1000
+
+            self.total_calls += 1
+            # Ollama ne renvoie pas toujours les tokens; on laisse à 0
+            tokens_used = 0
+
+            metadata = {
+                "model": self.model_name,
+                "tokens": tokens_used,
+                "latency_ms": latency,
+            }
+            return message, metadata
+        except Exception as e:
+            logging.error(f"Erreur OllamaClient: {e}")
+            raise
+
+
 class LLMClientFactory:
     """Factory pour créer les clients LLM appropriés"""
     
@@ -462,6 +524,8 @@ class LLMClientFactory:
             return HuggingFaceClient(api_key=api_key, model=model or "meta-llama/Meta-Llama-3-8B-Instruct")
         elif provider == "transformers" or provider == "local":
             return TransformersClient(api_key=api_key, model=model or "distilgpt2")
+        elif provider == "ollama":
+            return OllamaClient(api_key=api_key, model=model or "llama3:8b")
         
         else:
             raise ValueError(f"Fournisseur non supporté: {provider}")
@@ -469,58 +533,16 @@ class LLMClientFactory:
 
 # Configurations de modèles recommandées
 MODEL_CONFIGS = {
-    "mistral-small": {
-        "provider": "mistral",
-        "model": "mistral-small-latest",
-        "max_tokens": 4096,
+    "ollama-llama3-8b": {
+        "provider": "ollama",
+        "model": "llama3:8b",
+        "max_tokens": 512,
         "temperature": 0.7
     },
-    "mistral-medium": {
-        "provider": "mistral",
-        "model": "mistral-medium-latest",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "gpt-4": {
-        "provider": "gpt",
-        "model": "gpt-4-turbo-preview",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "gpt-3.5": {
-        "provider": "gpt",
-        "model": "gpt-3.5-turbo",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "claude-3-opus": {
-        "provider": "claude",
-        "model": "claude-3-opus-20240229",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "claude-3-sonnet": {
-        "provider": "claude",
-        "model": "claude-3-5-sonnet-20241022",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "llama-3-8b": {
-        "provider": "huggingface",
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "zephyr-7b": {
-        "provider": "huggingface",
-        "model": "mistralai/Mistral-7B-Instruct-v0.2",
-        "max_tokens": 4096,
-        "temperature": 0.7
-    },
-    "mistral-7b-hf": {
-        "provider": "huggingface",
-        "model": "mistralai/Mistral-7B-Instruct-v0.2",
-        "max_tokens": 4096,
+    "ollama-mistral-7b": {
+        "provider": "ollama",
+        "model": "mistral:7b",
+        "max_tokens": 512,
         "temperature": 0.7
     },
     "distilgpt2-local": {
@@ -529,24 +551,30 @@ MODEL_CONFIGS = {
         "max_tokens": 200,
         "temperature": 0.7
     },
-    "gpt2-local": {
+    "mistral-7b": {
         "provider": "transformers",
-        "model": "gpt2",
+        "model": "mistralai/Mistral-7B-Instruct-v0.1",
+        "max_tokens": 512,
+        "temperature": 0.7
+    },
+    "ollama-phi3": {
+        "provider": "ollama",
+        "model": "phi3:latest",
+        "max_tokens": 512,
+        "temperature": 0.7
+    },
+    "distilbert": {
+        "provider": "transformers",
+        "model": "distilgpt2",
         "max_tokens": 200,
         "temperature": 0.7
     },
-    "opt-125m-local": {
+    "distilroberta": {
         "provider": "transformers",
-        "model": "facebook/opt-125m",
+        "model": "distilgpt2",
         "max_tokens": 200,
         "temperature": 0.7
     },
-    "pythia-70m-local": {
-        "provider": "transformers",
-        "model": "EleutherAI/pythia-70m",
-        "max_tokens": 200,
-        "temperature": 0.7
-    }
 }
 
 

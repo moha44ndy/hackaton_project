@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from enum import Enum
 
-from llm_clients import LLMClientFactory, MODEL_CONFIGS
+from hackaton_project.src.llm_clients import LLMClientFactory, MODEL_CONFIGS
 
 # Configuration du logging
 logging.basicConfig(
@@ -104,9 +104,9 @@ class PromptRunner:
     
     def __init__(
         self,
-        dataset_path: Optional[str] = None,
-        output_dir: str = "/app/results",
-        log_dir: str = "/app/logs"
+        dataset_path: Optional[str] = "hackaton_project/data/wmdp_prompts.json",
+        output_dir: str = "hackaton_project/results",
+        log_dir: str = "hackaton_project/logs"
     ):
         """
         Initialiser le Prompt Runner
@@ -602,22 +602,21 @@ class PromptRunner:
 
 def main():
     """Fonction de test du PromptRunner"""
-    
     logger.info("="*60)
     logger.info("TEST DU PROMPT RUNNER")
     logger.info("="*60)
-    
+
     # Initialiser le runner
     runner = PromptRunner()
-    
+
     # Charger les prompts par défaut
     runner.load_dataset()
-    
+
     # Afficher les prompts chargés
     logger.info(f"\n📋 Prompts chargés:")
     for prompt in runner.prompts:
         logger.info(f"  - {prompt.id}: {prompt.text[:60]}...")
-    
+
     # Tester avec Mistral
     logger.info(f"\n🧪 Test avec Mistral Small")
     responses = runner.run_prompts(
@@ -626,17 +625,48 @@ def main():
         max_tokens=500,
         delay_between_calls=1.0
     )
-    
+
     # Sauvegarder les résultats
     if responses:
         filepath = runner.save_responses()
         logger.info(f"\n💾 Résultats sauvegardés: {filepath}")
-        
         # Afficher les statistiques
         stats = runner.get_statistics()
         logger.info(f"\n📊 Statistiques:")
         logger.info(json.dumps(stats, indent=2))
-    
+
+    # Tester avec Ollama (Llama3:8b)
+    logger.info(f"\n🧪 Test avec Ollama Llama3:8b")
+    responses_ollama = runner.run_prompts(
+        model_name="ollama-llama3-8b",
+        temperature=0.7,
+        max_tokens=500,
+        delay_between_calls=1.0
+    )
+
+    if responses_ollama:
+        filepath_ollama = runner.save_responses(responses_ollama, filename="ollama_llama3_8b_responses.json")
+        logger.info(f"\n💾 Résultats Ollama sauvegardés: {filepath_ollama}")
+        stats_ollama = runner.get_statistics()
+        logger.info(f"\n📊 Statistiques Ollama:")
+        logger.info(json.dumps(stats_ollama, indent=2))
+
+    # Tester avec Ollama (Mistral-7B)
+    logger.info(f"\n🧪 Test avec Ollama Mistral-7B")
+    responses_ollama_mistral = runner.run_prompts(
+        model_name="ollama-mistral-7b",
+        temperature=0.7,
+        max_tokens=500,
+        delay_between_calls=1.0
+    )
+
+    if responses_ollama_mistral:
+        filepath_ollama_mistral = runner.save_responses(responses_ollama_mistral, filename="ollama_mistral7b_responses.json")
+        logger.info(f"\n💾 Résultats Ollama Mistral-7B sauvegardés: {filepath_ollama_mistral}")
+        stats_ollama_mistral = runner.get_statistics()
+        logger.info(f"\n📊 Statistiques Ollama Mistral-7B:")
+        logger.info(json.dumps(stats_ollama_mistral, indent=2))
+
     logger.info("\n✅ Test terminé avec succès!")
 
 

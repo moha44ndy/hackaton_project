@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
+from hackaton_project.src.llm_clients import MODEL_CONFIGS
 from dataclasses import dataclass, asdict
 
 try:

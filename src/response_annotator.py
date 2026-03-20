@@ -2,6 +2,8 @@
 Module d'Annotation des Réponses WMDP
 Conforme à la Phase 2 : Critères de Compliance et Harmfulness
 
+from hackaton_project.src.llm_clients import MODEL_CONFIGS
+
 Ce module implémente la grille d'annotation pour évaluer les réponses
 des modèles selon les dimensions définies dans la Phase 2.
 """

@@ -5,6 +5,7 @@ Génère des statistiques et visualisations pour l'analyse comparative
 
 import json
 import logging
+from hackaton_project.src.llm_clients import MODEL_CONFIGS
 from pathlib import Path
 from typing import Dict, List, Any
 from collections import Counter, defaultdict

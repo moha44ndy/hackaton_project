@@ -23,16 +23,16 @@ try:
 except ImportError:
     pass
 
-from prompt_runner import PromptRunner
-from response_annotator import AnnotationManager
-from wmdp_analyzer import WMDPAnalyzer
-from llm_clients import MODEL_CONFIGS
+from hackaton_project.src.prompt_runner import PromptRunner
+from hackaton_project.src.response_annotator import AnnotationManager
+from hackaton_project.src.wmdp_analyzer import WMDPAnalyzer
+from hackaton_project.src.llm_clients import MODEL_CONFIGS
 import os
 
 # ELK logger (initialized in main)
 ELK_LOGGER = None
 try:
-    from elk_logger import get_elk_logger
+    from hackaton_project.src.elk_logger import get_elk_logger
 except Exception:
     get_elk_logger = None
 
